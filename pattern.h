@@ -264,13 +264,13 @@ static const char* pattern_match_balanced(Pattern_State* ps, const char* string_
 
     char open = pattern_ptr[2];
     char close = pattern_ptr[3];
+
     if(pattern_is_at_end(ps, string_ptr) || *string_ptr != open) {
         return NULL;
     }
 
-    int count = 1;
     string_ptr++;
-
+    int count = 1;
     while(!pattern_is_at_end(ps, string_ptr)) {
         if(*string_ptr == open) {
             count++;
@@ -484,9 +484,10 @@ static const char* pattern_match_start(Pattern_State* ps, const char* string_ptr
             return pattern_is_at_end(ps, string_ptr) ? string_ptr : NULL;
         }
         return pattern_match_rep_operator(ps, string_ptr, pattern_ptr);
-    case PATTERN_ESCAPE:
-        // If there are digits after a `%`, then it's a capture reference
-        if(isdigit(pattern_ptr[1])) {
+    case PATTERN_ESCAPE: 
+        switch(pattern_ptr[1]) {
+        case '0': case '1': case '2': case '3': case '4': case '5': case '6': case '7': case '8':
+        case '9': {  // If there are digits after a `%`, then it's a capture reference 
             int digit_count = 1;
             while(isdigit(pattern_ptr[digit_count])) {
                 digit_count++;
@@ -499,15 +500,13 @@ static const char* pattern_match_start(Pattern_State* ps, const char* string_ptr
 
             return pattern_match_start(ps, string_ptr, pattern_ptr + digit_count);
         }
-        // Check for balanced match %bxy
-        if(pattern_ptr[1] == 'b') {
+        case 'b':  // Check for balanced match `%bxy`
             return pattern_match_balanced(ps, string_ptr, pattern_ptr);
-        }
-        // Check for frontier pattern %f[set]
-        if(pattern_ptr[1] == 'f') {
+        case 'f':  // Check for frontier pattern `%f[set]`
             return pattern_match_frontier(ps, string_ptr, pattern_ptr);
+        default:
+            return pattern_match_rep_operator(ps, string_ptr, pattern_ptr);
         }
-        return pattern_match_rep_operator(ps, string_ptr, pattern_ptr);
     default:
         return pattern_match_rep_operator(ps, string_ptr, pattern_ptr);
     }
