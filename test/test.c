@@ -211,6 +211,73 @@ CTEST(pattern, nested_captures) {
     ASSERT_TRUE(pattern_is_position_capture(&ps, 3) && pattern_get_capture_pos(&ps, 3) == 10);
 }
 
+CTEST(pattern, balanced_matches) {
+    Pattern_State ps;
+
+    pattern_match_cstr(&ps, "(a(b)c)", "%b()");
+    ASSERT_TRUE(ps.status == PATTERN_MATCH && capture_eq(ps.captures[0], "(a(b)c)"));
+    pattern_match_cstr(&ps, "[a[b]c]", "%b[]");
+    ASSERT_TRUE(ps.status == PATTERN_MATCH && capture_eq(ps.captures[0], "[a[b]c]"));
+    pattern_match_cstr(&ps, "<a<b>c>", "%b<>");
+    ASSERT_TRUE(ps.status == PATTERN_MATCH && capture_eq(ps.captures[0], "<a<b>c>"));
+    pattern_match_cstr(&ps, "((()))", "%b()");
+    ASSERT_TRUE(ps.status == PATTERN_MATCH && capture_eq(ps.captures[0], "((()))"));
+    pattern_match_cstr(&ps, "(abc)def", "%b()def");
+    ASSERT_TRUE(ps.status == PATTERN_MATCH && capture_eq(ps.captures[0], "(abc)def"));
+    pattern_match_cstr(&ps, "x(a)y(b)z", "%b()");
+    ASSERT_TRUE(ps.status == PATTERN_MATCH && capture_eq(ps.captures[0], "(a)"));
+    pattern_match_cstr(&ps, "(abc", "%b()");
+    ASSERT_TRUE(ps.status == PATTERN_NO_MATCH);
+    pattern_match_cstr(&ps, "abc)", "%b()");
+    ASSERT_TRUE(ps.status == PATTERN_NO_MATCH);
+    // Note: "(()" contains a valid balanced match "()" starting at position 1
+    pattern_match_cstr(&ps, "(()", "%b()");
+    ASSERT_TRUE(ps.status == PATTERN_MATCH && capture_eq(ps.captures[0], "()"));
+    pattern_match_cstr(&ps, "()", "%b()");
+    ASSERT_TRUE(ps.status == PATTERN_MATCH && capture_eq(ps.captures[0], "()"));
+    pattern_match_cstr(&ps, "text(abc)more", "(%b())");
+    ASSERT_TRUE(ps.status == PATTERN_MATCH && ps.capture_count == 2);
+    ASSERT_TRUE(capture_eq(ps.captures[1], "(abc)"));
+    pattern_match_cstr(&ps, "{a{b}c}", "%b{}");
+    ASSERT_TRUE(ps.status == PATTERN_MATCH && capture_eq(ps.captures[0], "{a{b}c}"));
+}
+
+CTEST(pattern, frontier_patterns) {
+    Pattern_State ps;
+
+    pattern_match_cstr(&ps, "hello world", "%f[%w]hello");
+    ASSERT_TRUE(ps.status == PATTERN_MATCH && capture_eq(ps.captures[0], "hello"));
+    pattern_match_cstr(&ps, "hello world", "%f[%a]hello%f[%A]");
+    ASSERT_TRUE(ps.status == PATTERN_MATCH && capture_eq(ps.captures[0], "hello"));
+    pattern_match_cstr(&ps, "xhello", "%f[%w]hello");
+    ASSERT_TRUE(ps.status == PATTERN_NO_MATCH);
+    pattern_match_cstr(&ps, "abc123def", "%f[%d]%d+");
+    ASSERT_TRUE(ps.status == PATTERN_MATCH && capture_eq(ps.captures[0], "123"));
+    pattern_match_cstr(&ps, " word ", "%f[%w]%w+%f[%W]");
+    ASSERT_TRUE(ps.status == PATTERN_MATCH && capture_eq(ps.captures[0], "word"));
+    pattern_match_cstr(&ps, "abc123", "%f[%d]");
+    ASSERT_TRUE(ps.status == PATTERN_MATCH && capture_eq(ps.captures[0], ""));
+    ASSERT_TRUE(pattern_get_capture_pos(&ps, 0) == 3);
+    pattern_match_cstr(&ps, "hello", "%f[%a]");
+    ASSERT_TRUE(ps.status == PATTERN_MATCH && pattern_get_capture_pos(&ps, 0) == 0);
+    pattern_match_cstr(&ps, "hello", "hello%f[%z]");
+    ASSERT_TRUE(ps.status == PATTERN_MATCH && capture_eq(ps.captures[0], "hello"));
+    pattern_match_cstr(&ps, "abc:def", "%f[:]");
+    ASSERT_TRUE(ps.status == PATTERN_MATCH && pattern_get_capture_pos(&ps, 0) == 3);
+    pattern_match_cstr(&ps, "123abc", "%f[^%d]");
+    ASSERT_TRUE(ps.status == PATTERN_MATCH && pattern_get_capture_pos(&ps, 0) == 3);
+}
+
+CTEST(pattern, balanced_and_frontier_combined) {
+    Pattern_State ps;
+    pattern_match_cstr(&ps, "text (abc) more", "%f[%(]%b()");
+    ASSERT_TRUE(ps.status == PATTERN_MATCH && capture_eq(ps.captures[0], "(abc)"));
+    pattern_match_cstr(&ps, "func(arg1, (arg2))", "(%w+)%b()");
+    ASSERT_TRUE(ps.status == PATTERN_MATCH && ps.capture_count == 2);
+    ASSERT_TRUE(capture_eq(ps.captures[0], "func(arg1, (arg2))"));
+    ASSERT_TRUE(capture_eq(ps.captures[1], "func"));
+}
+
 CTEST(pattern, errors) {
     Pattern_State ps;
 
@@ -250,3 +317,33 @@ CTEST(pattern, errors) {
     ASSERT_TRUE(ps.status == PATTERN_ERROR && ps.error == PATTERN_ERR_INVALID_CAPTURE_IDX);
     pattern_print_error(stderr, &ps);
 }
+
+
+CTEST(pattern, balanced_errors) {
+    Pattern_State ps;
+
+    pattern_match_cstr(&ps, "(abc)", "%b(");
+    ASSERT_TRUE(ps.status == PATTERN_ERROR && ps.error == PATTERN_ERR_INVALID_BALANCED_PATTERN);
+    pattern_print_error(stderr, &ps);
+
+    pattern_match_cstr(&ps, "(abc)", "%b");
+    ASSERT_TRUE(ps.status == PATTERN_ERROR && ps.error == PATTERN_ERR_INVALID_BALANCED_PATTERN);
+    pattern_print_error(stderr, &ps);
+}
+
+CTEST(pattern, frontier_errors) {
+    Pattern_State ps;
+
+    pattern_match_cstr(&ps, "hello", "%f");
+    ASSERT_TRUE(ps.status == PATTERN_ERROR && ps.error == PATTERN_ERR_UNCLOSED_FRONTIER_PATTERN);
+    pattern_print_error(stderr, &ps);
+
+    pattern_match_cstr(&ps, "hello", "%f[%w");
+    ASSERT_TRUE(ps.status == PATTERN_ERROR && ps.error == PATTERN_ERR_UNCLOSED_FRONTIER_PATTERN);
+    pattern_print_error(stderr, &ps);
+
+    pattern_match_cstr(&ps, "hello", "%fx");
+    ASSERT_TRUE(ps.status == PATTERN_ERROR && ps.error == PATTERN_ERR_UNCLOSED_FRONTIER_PATTERN);
+    pattern_print_error(stderr, &ps);
+}
+

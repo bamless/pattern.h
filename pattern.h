@@ -1,5 +1,5 @@
 /**
- * pattern.h v1.0.0 - Lua's pattern matching in C
+ * pattern.h v1.1.0 - Lua's pattern matching in C
  *
  * Single header library implementing Lua's pattern matching
  *
@@ -10,13 +10,14 @@
  *     - Captures and back-references
  *     - Greedy and lazy repetition
  *     - Anchors (`^`, `$`)
+ *     - Balanced matches (`%b`)
+ *     - Frontier patterns (`%f`)
  *     - Detailed error diagnostics with source location
  *
  * Limitations:
  *     - Not a full regex engine
  *     - No alternation (`|`)
  *     - No lookahead/lookbehind
- *     - For now, balanced matches (`%b`) and frontier patterns (`%f`) are not supported.
  *
  * Pattern Syntax:
  *
@@ -61,6 +62,14 @@
  *
  * Backreferences:
  * (%a+)%1 - matches repeated word
+ *
+ * Balanced Matches:
+ * %bxy - matches substring starting with x, ending with y, with balanced occurrences
+ *        Example: %b() matches balanced parentheses like "(a(b)c)"
+ *
+ * Frontier Patterns:
+ * %f[set] - matches empty string at any position where next char is in set and previous is not
+ *           Example: %f[%w] matches word boundaries
  */
 #ifndef PATTERN_H_
 #define PATTERN_H_
@@ -89,6 +98,8 @@ typedef enum {
     PATTERN_ERR_INVALID_CAPTURE_IDX,
     PATTERN_ERR_INCOMPLETE_ESCAPE,
     PATTERN_ERR_UNCLOSED_CLASS,
+    PATTERN_ERR_INVALID_BALANCED_PATTERN,
+    PATTERN_ERR_UNCLOSED_FRONTIER_PATTERN,
 } Pattern_Error;
 
 typedef enum {
@@ -242,6 +253,75 @@ static bool pattern_match_class_or_char(char c, const char* pattern, const char*
     default:
         return c == *pattern;
     }
+}
+
+static const char* pattern_match_balanced(Pattern_State* ps, const char* string_ptr,
+                                          const char* pattern_ptr) {
+    if(pattern_is_at_pattern_end(&pattern_ptr[2]) || pattern_is_at_pattern_end(&pattern_ptr[3])) {
+        pattern_set_error(ps, PATTERN_ERR_INVALID_BALANCED_PATTERN, pattern_ptr - ps->pattern_base);
+        return NULL;
+    }
+
+    char open = pattern_ptr[2];
+    char close = pattern_ptr[3];
+    if(pattern_is_at_end(ps, string_ptr) || *string_ptr != open) {
+        return NULL;
+    }
+
+    int count = 1;
+    string_ptr++;
+
+    while(!pattern_is_at_end(ps, string_ptr)) {
+        if(*string_ptr == open) {
+            count++;
+        } else if(*string_ptr == close) {
+            count--;
+            if(count == 0) {
+                return pattern_match_start(ps, string_ptr + 1, pattern_ptr + 4);
+            }
+        }
+        string_ptr++;
+    }
+
+    return NULL;
+}
+
+static const char* pattern_match_frontier(Pattern_State* ps, const char* string_ptr,
+                                          const char* pattern_ptr) {
+    if(pattern_is_at_pattern_end(&pattern_ptr[1]) || pattern_ptr[2] != '[') {
+        pattern_set_error(ps, PATTERN_ERR_UNCLOSED_FRONTIER_PATTERN,
+                          pattern_ptr - ps->pattern_base);
+        return NULL;
+    }
+
+    const char* class_start = &pattern_ptr[2];
+    const char* class_ptr = class_start + 1;
+    while(!pattern_is_at_pattern_end(class_ptr) && *class_ptr != ']') {
+        if(*class_ptr == PATTERN_ESCAPE && !pattern_is_at_pattern_end(&class_ptr[1])) {
+            class_ptr += 2;
+        } else {
+            class_ptr++;
+        }
+    }
+
+    if(*class_ptr != ']') {
+        pattern_set_error(ps, PATTERN_ERR_UNCLOSED_FRONTIER_PATTERN,
+                          pattern_ptr - ps->pattern_base);
+        return NULL;
+    }
+
+    const char* class_end = class_ptr;
+
+    char prev_char = (string_ptr > ps->data.data) ? string_ptr[-1] : '\0';
+    char curr_char = pattern_is_at_end(ps, string_ptr) ? '\0' : *string_ptr;
+    bool prev_in_set = pattern_match_custom_class(prev_char, class_start, class_end);
+    bool curr_in_set = pattern_match_custom_class(curr_char, class_start, class_end);
+
+    if(!prev_in_set && curr_in_set) {
+        return pattern_match_start(ps, string_ptr, class_end + 1);
+    }
+
+    return NULL;
 }
 
 static int pattern_finish_captures(Pattern_State* ps, const char* pattern_ptr) {
@@ -419,6 +499,14 @@ static const char* pattern_match_start(Pattern_State* ps, const char* string_ptr
 
             return pattern_match_start(ps, string_ptr, pattern_ptr + digit_count);
         }
+        // Check for balanced match %bxy
+        if(pattern_ptr[1] == 'b') {
+            return pattern_match_balanced(ps, string_ptr, pattern_ptr);
+        }
+        // Check for frontier pattern %f[set]
+        if(pattern_ptr[1] == 'f') {
+            return pattern_match_frontier(ps, string_ptr, pattern_ptr);
+        }
         return pattern_match_rep_operator(ps, string_ptr, pattern_ptr);
     default:
         return pattern_match_rep_operator(ps, string_ptr, pattern_ptr);
@@ -520,6 +608,10 @@ const char* pattern_strerror(Pattern_Error err) {
         return "incomplete escape";
     case PATTERN_ERR_UNCLOSED_CLASS:
         return "unclosed character class";
+    case PATTERN_ERR_INVALID_BALANCED_PATTERN:
+        return "invalid balanced pattern (expected %bxy)";
+    case PATTERN_ERR_UNCLOSED_FRONTIER_PATTERN:
+        return "unclosed frontier pattern (expected %f[set])";
     }
     assert(false && "Unreachable");
 }
