@@ -1,9 +1,9 @@
 # pattern.h
 
-A **single-header C library** that implements **Lua-style pattern matching**, including captures, character classes, repetition operators, and detailed error reporting.
+A **single-header C library** that implements **Lua-style pattern matching**, including captures, character classes, repetition operators, balanced matches, frontier patterns, and detailed error reporting.
 
 
-This is **not regex** — it follows Lua’s lightweight pattern syntax, making it small, fast, and easy to embed.  
+This is **not regex** — it follows Lua's lightweight pattern syntax, making it small, fast, and easy to embed.
 An overview of pattern matching is provided [below](#pattern-syntax-lua-compatible). For more information on Lua's patterns refer to the official [documentation](https://www.lua.org/pil/20.2.html).
 
 ---
@@ -12,10 +12,13 @@ An overview of pattern matching is provided [below](#pattern-syntax-lua-compatib
 
 - Lua-compatible pattern syntax
 - Header-only (drop-in)
+- Compiles cleanly with a C++ compiler
 - Works on binary data or C strings
 - Captures and back-references
 - Greedy and lazy repetition
 - Anchors (`^`, `$`)
+- Balanced matches (`%b`)
+- Frontier patterns (`%f`)
 - Detailed error diagnostics with source location
 
 ---
@@ -25,7 +28,7 @@ An overview of pattern matching is provided [below](#pattern-syntax-lua-compatib
 - No dynamic allocations
 - Recursive backtracking matcher
 - Designed for simplicity and embeddability
-- Behavior closely follows Lua’s `string.match`
+- Behavior closely follows Lua's `string.match`
 
 ---
 
@@ -34,7 +37,6 @@ An overview of pattern matching is provided [below](#pattern-syntax-lua-compatib
 - Not a full regex engine
 - No alternation (`|`)
 - No lookahead/lookbehind
-- For now, balanced matches (`%b`) and frontier patterns (`%f`) are not supported.
 
 ## Getting Started
 
@@ -60,15 +62,16 @@ In other files, include it normally:
 ```c
 Pattern_State ps;
 
-pattern_match_cstr(&ps, "hello world", "h(ello)");
-if(ps.status == PATTERN_ERROR) {
+Pattern_Status status = pattern_match_cstr(&ps, "hello world", "h(ello)");
+if(status == PATTERN_ERROR) {
     pattern_print_error(stderr, &ps);
     return 1;
 }
-if(ps.status == PATTERN_NO_MATCH) {
+if(status == PATTERN_NO_MATCH) {
     printf("No match");
     return 0;
 }
+
 printf("Matched!\n");
 printf("Full match: %.*s\n", (int)ps.captures[0].size, ps.captures[0].data);
 printf("Capture 1: %.*s\n", (int)ps.captures[1].size, ps.captures[1].data);
@@ -138,6 +141,37 @@ printf("Capture 1: %.*s\n", (int)ps.captures[1].size, ps.captures[1].data);
 (%a+)%1    -- matches repeated word
 ```
 
+### Balanced Matches
+
+```lua
+%bxy    -- matches substring starting with x, ending with y, with balanced occurrences
+```
+
+Examples:
+- `%b()` matches balanced parentheses: `"(a(b)c)"` → `"(a(b)c)"`
+- `%b[]` matches balanced brackets: `"[a[b]c]"` → `"[a[b]c]"`
+- `%b<>` matches balanced angle brackets: `"<a<b>c>"` → `"<a<b>c>"`
+
+The balanced match starts at the first occurrence of `x` and continues until it finds a matching `y` where all nested `x`/`y` pairs are balanced.
+
+### Frontier Patterns
+
+```lua
+%f[set]    -- matches empty string at boundary where next char is in set and previous is not
+```
+
+Examples:
+- `%f[%w]` matches the start of a word (word boundary)
+- `%f[%W]` matches the end of a word
+- `%f[%a]hello%f[%A]` matches "hello" as a complete word
+- `%f[%d]` matches positions just before a digit
+
+The frontier pattern matches a zero-width position (like `()` position captures) where:
+- The previous character is NOT in the specified set
+- The current character IS in the specified set
+
+This is useful for matching word boundaries and other transitions between character classes.
+
 ## Binary-Safe Matching
 
 ```c
@@ -155,7 +189,8 @@ pattern_match_ex(&ps, data, len, pattern, start_pos);
 ## Error Handling
 
 ```c
-if(ps.status == PATTERN_ERROR) {
+Pattern_Status status = ...;
+if(status == PATTERN_ERROR) {
     pattern_print_error(stderr, &ps);
 }
 ```
@@ -176,6 +211,8 @@ column:5: unclosed character class
 - `PATTERN_ERR_INVALID_CAPTURE_IDX`
 - `PATTERN_ERR_INCOMPLETE_ESCAPE`
 - `PATTERN_ERR_UNCLOSED_CLASS`
+- `PATTERN_ERR_INVALID_BALANCED_PATTERN`
+- `PATTERN_ERR_UNCLOSED_FRONTIER_PATTERN`
 
 ## Utility Functions
 
