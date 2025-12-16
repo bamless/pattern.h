@@ -61,15 +61,16 @@ In other files, include it normally:
 ```c
 Pattern_State ps;
 
-pattern_match_cstr(&ps, "hello world", "h(ello)");
-if(ps.status == PATTERN_ERROR) {
+Pattern_Status status = pattern_match_cstr(&ps, "hello world", "h(ello)");
+if(status == PATTERN_ERROR) {
     pattern_print_error(stderr, &ps);
     return 1;
 }
-if(ps.status == PATTERN_NO_MATCH) {
+if(status == PATTERN_NO_MATCH) {
     printf("No match");
     return 0;
 }
+
 printf("Matched!\n");
 printf("Full match: %.*s\n", (int)ps.captures[0].size, ps.captures[0].data);
 printf("Capture 1: %.*s\n", (int)ps.captures[1].size, ps.captures[1].data);
@@ -187,7 +188,8 @@ pattern_match_ex(&ps, data, len, pattern, start_pos);
 ## Error Handling
 
 ```c
-if(ps.status == PATTERN_ERROR) {
+Pattern_Status status = ...;
+if(status == PATTERN_ERROR) {
     pattern_print_error(stderr, &ps);
 }
 ```
