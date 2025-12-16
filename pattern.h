@@ -70,6 +70,13 @@
  * Frontier Patterns:
  * %f[set] - matches empty string at any position where next char is in set and previous is not
  *           Example: %f[%w] matches word boundaries
+ *
+ *  Changelog:
+ *  1.0.1:
+ *    Added support for balanced matches and frontier patterns
+ *
+ *  1.1.0:
+ *    Return `Pattern_Status` from matching funtions instead of storing it in the state
  */
 #ifndef PATTERN_H_
 #define PATTERN_H_
@@ -109,7 +116,6 @@ typedef enum {
 } Pattern_Status;
 
 typedef struct {
-    Pattern_Status status;
     Pattern_Error error;
     size_t error_loc;
     Pattern_Substring data;
@@ -120,12 +126,13 @@ typedef struct {
 
 // Try to match some data (or cstring) with `pattern` starting from `starting_pos` in the data.
 // If `starting_pos` is negative, it will be interpreted as an offset from the end of the data.
-void pattern_match(Pattern_State* ps, const void* data, size_t len, const char* pattern);
-void pattern_match_ex(Pattern_State* ps, const void* data, size_t len, const char* pattern,
-                      ptrdiff_t starting_pos);
-void pattern_match_cstr(Pattern_State* ps, const char* str, const char* pattern);
-void pattern_match_cstr_ex(Pattern_State* ps, const char* str, const char* pattern,
-                           ptrdiff_t starting_pos);
+// Returns the match status (PATTERN_MATCH, PATTERN_NO_MATCH, or PATTERN_ERROR).
+Pattern_Status pattern_match(Pattern_State* ps, const void* data, size_t len, const char* pattern);
+Pattern_Status pattern_match_ex(Pattern_State* ps, const void* data, size_t len,
+                                const char* pattern, ptrdiff_t starting_pos);
+Pattern_Status pattern_match_cstr(Pattern_State* ps, const char* str, const char* pattern);
+Pattern_Status pattern_match_cstr_ex(Pattern_State* ps, const char* str, const char* pattern,
+                                     ptrdiff_t starting_pos);
 
 // Returns true if capture `idx` is a position-only capture (i.e. `()`)
 bool pattern_is_position_capture(const Pattern_State* ps, int idx);
@@ -146,7 +153,6 @@ void pattern_print_error(FILE* stream, const Pattern_State* ps);
 #include <string.h>
 
 static void pattern_init(Pattern_State* ps, const void* data, size_t len, const char* pattern) {
-    ps->status = PATTERN_NO_MATCH;
     ps->error = PATTERN_ERR_NONE;
     ps->error_loc = 0;
     ps->data.data = data;
@@ -158,8 +164,7 @@ static void pattern_init(Pattern_State* ps, const void* data, size_t len, const 
 }
 
 static void pattern_set_error(Pattern_State* ps, Pattern_Error err, size_t err_loc) {
-    if(ps->status == PATTERN_ERROR) return;
-    ps->status = PATTERN_ERROR;
+    if(ps->error) return;
     ps->error = err;
     ps->error_loc = err_loc;
 }
@@ -396,7 +401,7 @@ static const char* pattern_greedy_match(Pattern_State* ps, const char* string_pt
     while(i >= 0) {
         const char* res = pattern_match_start(ps, string_ptr + i, cls_end + 1);
         if(res) return res;
-        if(ps->status == PATTERN_ERROR) return NULL;
+        if(ps->error) return NULL;
         i--;
     }
 
@@ -408,7 +413,7 @@ static const char* pattern_lazy_match(Pattern_State* ps, const char* string_ptr,
     do {
         const char* res = pattern_match_start(ps, string_ptr, cls_end + 1);
         if(res) return res;
-        if(ps->status == PATTERN_ERROR) return NULL;
+        if(ps->error) return NULL;
     } while(!pattern_is_at_end(ps, string_ptr) &&
             pattern_match_class_or_char(*string_ptr++, pattern_ptr, cls_end));
 
@@ -484,10 +489,10 @@ static const char* pattern_match_start(Pattern_State* ps, const char* string_ptr
             return pattern_is_at_end(ps, string_ptr) ? string_ptr : NULL;
         }
         return pattern_match_rep_operator(ps, string_ptr, pattern_ptr);
-    case PATTERN_ESCAPE: 
+    case PATTERN_ESCAPE:
         switch(pattern_ptr[1]) {
         case '0': case '1': case '2': case '3': case '4': case '5': case '6': case '7': case '8':
-        case '9': {  // If there are digits after a `%`, then it's a capture reference 
+        case '9': {  // If there are digits after a `%`, then it's a capture reference
             int digit_count = 1;
             while(isdigit(pattern_ptr[digit_count])) {
                 digit_count++;
@@ -504,7 +509,7 @@ static const char* pattern_match_start(Pattern_State* ps, const char* string_ptr
             return pattern_match_balanced(ps, string_ptr, pattern_ptr);
         case 'f':  // Check for frontier pattern `%f[set]`
             return pattern_match_frontier(ps, string_ptr, pattern_ptr);
-        default:
+        default:   // No special handling required, proceed with matching
             return pattern_match_rep_operator(ps, string_ptr, pattern_ptr);
         }
     default:
@@ -534,51 +539,50 @@ static void pattern_check_unclosed_captures(Pattern_State* ps) {
     }
 }
 
-void pattern_match(Pattern_State* ps, const void* data, size_t len, const char* pattern) {
-    pattern_match_ex(ps, data, len, pattern, 0);
+Pattern_Status pattern_match(Pattern_State* ps, const void* data, size_t len, const char* pattern) {
+    return pattern_match_ex(ps, data, len, pattern, 0);
 }
 
-void pattern_match_ex(Pattern_State* ps, const void* data, size_t len, const char* pattern,
-                      ptrdiff_t starting_pos) {
+Pattern_Status pattern_match_ex(Pattern_State* ps, const void* data, size_t len,
+                                const char* pattern, ptrdiff_t starting_pos) {
     pattern_init(ps, data, len, pattern);
-    if(starting_pos < 0) {
-        starting_pos += len;  // negative starting_pos start from end of string
-    }
+    if(starting_pos < 0) starting_pos += len;  // negative starting_pos start from end of string
     assert(starting_pos >= 0 && (size_t)starting_pos <= len && "starting_pos out of bounds");
 
     const char* str = data + starting_pos;
     if(*pattern == '^') {
         const char* res = pattern_match_start(ps, str, pattern + 1);
         pattern_check_unclosed_captures(ps);
-        if(ps->status == PATTERN_ERROR) return;
+        if(ps->error) return PATTERN_ERROR;
         if(res) {
             ps->captures[0].size = res - str;
-            ps->status = PATTERN_MATCH;
+            return PATTERN_MATCH;
         }
     } else {
         do {
             const char* res = pattern_match_start(ps, str, pattern);
             pattern_check_unclosed_captures(ps);
-            if(ps->status == PATTERN_ERROR) break;
+            if(ps->error) return PATTERN_ERROR;
             if(res) {
                 ps->captures[0].data = str;
                 ps->captures[0].size = res - str;
-                ps->status = PATTERN_MATCH;
-                break;
+                return PATTERN_MATCH;
             }
         } while(!pattern_is_at_end(ps, str++));
     }
+
+    return PATTERN_NO_MATCH;
 }
 
-void pattern_match_cstr(Pattern_State* ps, const char* str, const char* pattern) {
+Pattern_Status pattern_match_cstr(Pattern_State* ps, const char* str, const char* pattern) {
     size_t len = strlen(str);
-    pattern_match(ps, str, len, pattern);
+    return pattern_match(ps, str, len, pattern);
 }
 
-void pattern_match_cstr_ex(Pattern_State* ps, const char* str, const char* pattern,
-                           ptrdiff_t starting_pos) {
+Pattern_Status pattern_match_cstr_ex(Pattern_State* ps, const char* str, const char* pattern,
+                                     ptrdiff_t starting_pos) {
     size_t len = strlen(str);
-    pattern_match_ex(ps, str, len, pattern, starting_pos);
+    return pattern_match_ex(ps, str, len, pattern, starting_pos);
 }
 
 bool pattern_is_position_capture(const Pattern_State* ps, int capture_idx) {
@@ -616,7 +620,7 @@ const char* pattern_strerror(Pattern_Error err) {
 }
 
 void pattern_print_error(FILE* stream, const Pattern_State* ps) {
-    assert(ps->status == PATTERN_ERROR && "Pattern isn't in an error state");
+    assert(ps->error && "Pattern isn't in an error state");
     fprintf(stream, "column:%zu: %s\n", ps->error_loc, pattern_strerror(ps->error));
     fprintf(stream, "%s\n", ps->pattern_base);
     for(size_t i = 0; i < ps->error_loc; i++) {
