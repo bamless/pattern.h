@@ -265,8 +265,10 @@ CTEST(pattern, frontier_patterns) {
     ASSERT_TRUE(status == PATTERN_NO_MATCH);
     status = pattern_match_cstr(&ps, "abc123def", "%f[%d]%d+");
     ASSERT_TRUE(status == PATTERN_MATCH && capture_eq(ps.captures[0], "123"));
-    status = pattern_match_cstr(&ps, " word ", "%f[%w]%w+%f[%W]");
+    status = pattern_match_cstr(&ps, " word ", "%f[%S]%w+%f[%s]");
     ASSERT_TRUE(status == PATTERN_MATCH && capture_eq(ps.captures[0], "word"));
+    status = pattern_match_cstr(&ps, "@word@", "%f[%S]%w+%f[%s]");
+    ASSERT_TRUE(status == PATTERN_NO_MATCH);
     status = pattern_match_cstr(&ps, "abc123", "%f[%d]");
     ASSERT_TRUE(status == PATTERN_MATCH && capture_eq(ps.captures[0], ""));
     ASSERT_TRUE(pattern_get_capture_pos(&ps, 0) == 3);
@@ -276,8 +278,10 @@ CTEST(pattern, frontier_patterns) {
     ASSERT_TRUE(status == PATTERN_MATCH && capture_eq(ps.captures[0], "hello"));
     status = pattern_match_cstr(&ps, "abc:def", "%f[:]");
     ASSERT_TRUE(status == PATTERN_MATCH && pattern_get_capture_pos(&ps, 0) == 3);
-    status = pattern_match_cstr(&ps, "123abc", "%f[^%d]");
-    ASSERT_TRUE(status == PATTERN_MATCH && pattern_get_capture_pos(&ps, 0) == 3);
+    status = pattern_match_cstr(&ps, "hello123abc", "(%a+)");
+    ASSERT_TRUE(status == PATTERN_MATCH && capture_eq(ps.captures[1], "hello"));
+    status = pattern_match_cstr(&ps, "hello123abc", "%f[^%d](%a+)");
+    ASSERT_TRUE(status == PATTERN_MATCH && capture_eq(ps.captures[1], "abc"));
 }
 
 CTEST(pattern, balanced_and_frontier_combined) {
