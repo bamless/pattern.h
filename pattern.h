@@ -77,6 +77,12 @@
  *
  *  1.1.0:
  *    Return `Pattern_Status` from matching funtions instead of storing it in the state
+ *
+ *  1.1.1:
+ *    Fix a bug in custom class processing
+ *
+ *  1.1.2:
+ *    Make the library compile with C++ compiler
  */
 #ifndef PATTERN_H_
 #define PATTERN_H_
@@ -155,11 +161,11 @@ void pattern_print_error(FILE* stream, const Pattern_State* ps);
 static void pattern_init(Pattern_State* ps, const void* data, size_t len, const char* pattern) {
     ps->error = PATTERN_ERR_NONE;
     ps->error_loc = 0;
-    ps->data.data = data;
+    ps->data.data = (const char*)data;
     ps->data.size = len;
     ps->pattern_base = pattern;
     ps->capture_count = 1;
-    ps->captures[0].data = data;
+    ps->captures[0].data = (const char*)data;
     ps->captures[0].size = PATTERN_CAPTURE_UNFINISHED;
 }
 
@@ -550,7 +556,7 @@ Pattern_Status pattern_match_ex(Pattern_State* ps, const void* data, size_t len,
     if(starting_pos < 0) starting_pos += len;  // negative starting_pos start from end of string
     assert(starting_pos >= 0 && (size_t)starting_pos <= len && "starting_pos out of bounds");
 
-    const char* str = data + starting_pos;
+    const char* str = (const char*)data + starting_pos;
     if(*pattern == '^') {
         const char* res = pattern_match_start(ps, str, pattern + 1);
         pattern_check_unclosed_captures(ps);

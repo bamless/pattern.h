@@ -12,6 +12,7 @@ An overview of pattern matching is provided [below](#pattern-syntax-lua-compatib
 
 - Lua-compatible pattern syntax
 - Header-only (drop-in)
+- Compiles cleanly with a C++ compiler
 - Works on binary data or C strings
 - Captures and back-references
 - Greedy and lazy repetition
