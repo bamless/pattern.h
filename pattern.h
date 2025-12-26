@@ -431,8 +431,9 @@ static const char* pattern_find_class_end(Pattern_State* ps, const char* pattern
         return pattern_ptr + 1;
     case '[': {
         const char* cls_start = pattern_ptr - 1;
+        if(*pattern_ptr == '^') pattern_ptr++;
         do {
-            if(pattern_is_at_end(ps, pattern_ptr)) {
+            if(pattern_is_at_pattern_end(pattern_ptr)) {
                 pattern_set_error(ps, PATTERN_ERR_UNCLOSED_CLASS, cls_start - ps->pattern_base);
                 return NULL;
             }
