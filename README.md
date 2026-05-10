@@ -61,18 +61,20 @@ In other files, include it normally:
 
 ## Basic Usage
 
+### Full error handling
+
+When working with patterns that may be malformed at runtime (e.g. user-provided input), handle all three outcomes explicitly. The compiler will warn on unhandled cases with `-Wswitch`:
+
 ```c
 Pattern_State ps;
-Pattern_Status status = pattern_match_cstr(&ps, "hello world", "h(ello)");
-
-switch(status) {
+switch(pattern_match_cstr(&ps, "hello world", "h(ello)")) {
 case PATTERN_MATCH:
     printf("Matched!\n");
     printf("Full match: %.*s\n", (int)ps.captures[0].size, ps.captures[0].data);
     printf("Capture 1: %.*s\n", (int)ps.captures[1].size, ps.captures[1].data);
     return 0;
 case PATTERN_NO_MATCH:
-    printf("No match");
+    printf("No match\n");
     return 0;
 case PATTERN_ERROR:
     pattern_print_error(stderr, &ps);
@@ -80,8 +82,25 @@ case PATTERN_ERROR:
 }
 ```
 
+### Fast path for well-formed patterns
+
+When the pattern is a known, trusted literal (e.g. a compile-time constant), a syntax error is a bug, not a runtime condition. Assert it away and rely on the boolean truthiness of the return value:
+
+```c
+Pattern_State ps;
+Pattern_Status match = pattern_match_cstr(&ps, "hello world", "h(ello)");
+assert(match != PATTERN_ERROR && "pattern is malformed");
+if(match) {
+    printf("Matched!\n");
+    printf("Full match: %.*s\n", (int)ps.captures[0].size, ps.captures[0].data);
+    printf("Capture 1: %.*s\n", (int)ps.captures[1].size, ps.captures[1].data);
+} else {
+    printf("No match\n");
+}
+```
+
 > NOTE: the full match is always stored at capture index `0`.  
-> Conceptually, it is as the pattern is always surrounded with a top-level capture.
+> Conceptually, it is as if the pattern is always surrounded with a top-level capture.
 
 ## Pattern Syntax (Lua-Compatible)
 
