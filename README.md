@@ -63,20 +63,21 @@ In other files, include it normally:
 
 ```c
 Pattern_State ps;
-
 Pattern_Status status = pattern_match_cstr(&ps, "hello world", "h(ello)");
-if(status == PATTERN_ERROR) {
+
+switch(status) {
+case PATTERN_MATCH:
+    printf("Matched!\n");
+    printf("Full match: %.*s\n", (int)ps.captures[0].size, ps.captures[0].data);
+    printf("Capture 1: %.*s\n", (int)ps.captures[1].size, ps.captures[1].data);
+    return 0;
+case PATTERN_NO_MATCH:
+    printf("No match");
+    return 0;
+case PATTERN_ERROR:
     pattern_print_error(stderr, &ps);
     return 1;
 }
-if(status == PATTERN_NO_MATCH) {
-    printf("No match");
-    return 0;
-}
-
-printf("Matched!\n");
-printf("Full match: %.*s\n", (int)ps.captures[0].size, ps.captures[0].data);
-printf("Capture 1: %.*s\n", (int)ps.captures[1].size, ps.captures[1].data);
 ```
 
 > NOTE: the full match is always stored at capture index `0`.  
