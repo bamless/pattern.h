@@ -72,13 +72,13 @@ case PATTERN_MATCH:
     printf("Matched!\n");
     printf("Full match: %.*s\n", (int)ps.captures[0].size, ps.captures[0].data);
     printf("Capture 1: %.*s\n", (int)ps.captures[1].size, ps.captures[1].data);
-    return 0;
+    break;
 case PATTERN_NO_MATCH:
     printf("No match\n");
-    return 0;
+    break;
 case PATTERN_ERROR:
     pattern_print_error(stderr, &ps);
-    return 1;
+    break;
 }
 ```
 
